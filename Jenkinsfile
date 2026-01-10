@@ -29,15 +29,11 @@ pipeline {
         stage('SAST - Application Security Scan (Semgrep)') {
             steps {
                 script {
-                    // 1. Tải trực tiếp Semgrep binary bản ổn định
-                    sh 'curl -L https://github.com/semgrep/semgrep/releases/download/v1.55.0/semgrep-v1.55.0-ubuntu-generic.tar.gz -o semgrep.tar.gz'
+                    // 1. Cài đặt semgrep thông qua pip (bỏ qua cảnh báo hệ thống)
+                    sh 'pip3 install semgrep --break-system-packages'
                     
-                    // 2. Giải nén
-                    sh 'tar -xzf semgrep.tar.gz'
-                    
-                    // 3. Chạy quét (File thực thi nằm trong thư mục vừa giải nén)
-                    // Chúng ta dùng --error để bắt lỗi SQL Injection trong app.py
-                    sh './semgrep/semgrep scan --config auto --error'
+                    // 2. Chạy quét toàn bộ thư mục và ép lỗi khi thấy SQL Injection
+                    sh 'semgrep scan --config auto --error'
                 }
             }
         }
