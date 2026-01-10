@@ -7,7 +7,12 @@ pipeline {
                 checkout scm
             }
         }
-        
+        stage('Secret Scanning') {
+            steps {
+                // Sử dụng Gitleaks để tìm các bí mật bị lộ trong lịch sử commit
+                sh 'docker run --rm -v $(pwd):/path zricethezav/gitleaks:latest detect --source="/path" -v'
+            }
+        }        
         stage('Infrastructure Security Scan') {
             steps {
                 // Sử dụng Docker để chạy tfsec mà không cần cài đặt tfsec vào Jenkins server
