@@ -19,7 +19,9 @@ pipeline {
                 //sh 'docker run --rm -v $(pwd):/src aquasec/tfsec /src'
                 // Cập nhật lệnh này: Quét trực tiếp thư mục hiện tại (.) 
                 // và ép buộc trả về lỗi (exit code 1) nếu có vấn đề
-                sh 'docker run --rm -v $(pwd):/apps aquasec/tfsec /apps'
+                //sh 'docker run --rm -v $(pwd):/apps aquasec/tfsec /apps'
+                // SỬA LẠI DÒNG NÀY: Dùng --workdir để ép tfsec đứng đúng vị trí chứa code
+                sh 'docker run --rm -v $(pwd):/src --workdir /src aquasec/tfsec .'
             }
         }
         
