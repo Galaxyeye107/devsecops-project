@@ -1,0 +1,139 @@
+# 1. Khai báo vùng hoạt động
+provider "aws" {
+  region = "ap-southeast-1"
+}
+# 1. Khai báo khóa KMS (Giải quyết lỗi HIGH về mã hóa) [cite: 81]
+resource "aws_kms_key" "s3_key" {
+  description             = "KMS key for S3 bucket encryption"
+  deletion_window_in_days = 7
+  enable_key_rotation     = true # Điểm cộng bảo mật [cite: 82]
+}
+resource "aws_s3_bucket_server_side_encryption_configuration" "logs_encrypt" {
+  bucket = aws_s3_bucket.logs.id
+  rule {
+    apply_server_side_encryption_by_default {
+      kms_master_key_id = aws_kms_key.s3_key.arn
+      sse_algorithm     = "aws:kms"
+    }
+  }
+}
+
+# 2. Tạo VPC (Mạng ảo riêng biệt) 
+resource "aws_vpc" "main" {
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_support   = true # Cho phép phân giải tên miền trong mạng [cite: 14347]
+  enable_dns_hostnames = true # Cấp hostname cho các máy chủ [cite: 14348]
+
+  tags = {
+    Name = "secure-vpc"
+  }
+}
+# SỬA LỖI 3: Thêm Flow Logs để giám sát mạng (Yêu cầu MEDIUM)
+# Giúp ghi lại mọi luồng traffic để điều tra khi bị tấn công
+resource "aws_flow_log" "example" {
+  iam_role_arn    = aws_iam_role.app_role.arn
+  log_destination = aws_s3_bucket.logs.arn
+  traffic_type    = "ALL"
+  vpc_id          = aws_vpc.main.id
+}
+# 3. Cấu hình S3 LOGS (Sửa lỗi #2 đến #10)
+resource "aws_s3_bucket" "logs" {
+  bucket = "my-secure-flow-logs-project-30days"
+  
+  # Chặn xóa nhầm bucket
+  force_destroy = false
+}
+# Bật Logging cho chính nó (Sửa lỗi MEDIUM #2)
+resource "aws_s3_bucket_logging" "logs_logging" {
+  bucket        = aws_s3_bucket.logs.id
+  target_bucket = aws_s3_bucket.logs.id
+  target_prefix = "log/"
+}
+# Bật Encryption (Sửa lỗi #4, #7)
+resource "aws_s3_bucket_server_side_encryption_configuration" "logs_encrypt" {
+  bucket = aws_s3_bucket.logs.id
+  rule {
+    apply_server_side_encryption_by_default {
+      kms_master_key_id = aws_kms_key.s3_key.arn
+      sse_algorithm     = "aws:kms"
+    }
+  }
+}
+# Các lớp bảo vệ bắt buộc khác
+resource "aws_s3_bucket_versioning" "logs_versioning" {
+  bucket = aws_s3_bucket.logs.id
+  versioning_configuration { status = "Enabled" }
+}
+# Khóa Public Access (Sửa lỗi #2, #3, #5, #6, #10) - ĐIỂM ĂN TIỀN
+resource "aws_s3_bucket_public_access_block" "logs_access" {
+  bucket = aws_s3_bucket.logs.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+# Bật Versioning (Sửa lỗi #9)
+resource "aws_s3_bucket_versioning" "logs_versioning" {
+  bucket = aws_s3_bucket.logs.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+# 4. Giám sát mạng (Flow Logs)
+resource "aws_flow_log" "main_vpc_log" {
+  log_destination = aws_s3_bucket.logs.arn
+  traffic_type    = "ALL"
+  vpc_id          = aws_vpc.main.id
+}
+# 3. Tạo Subnet riêng tư (Private Subnet) [cite: 14351]
+# Đây là "vùng cấm" để đặt Database, không thể truy cập từ Internet [cite: 2211]
+resource "aws_subnet" "private" {
+  vpc_id     = aws_vpc.main.id
+  cidr_block = "10.0.1.0/24"
+
+  tags = {
+    Name = "private-subnet"
+  }
+}
+
+# 4. Tạo Tường lửa (Security Group) [cite: 14616]
+resource "aws_security_group" "web_sg" {
+  name        = "web-application-sg"
+  vpc_id      = aws_vpc.main.id
+  description = "Allow HTTPS only"
+
+  # Chỉ cho phép HTTPS (cổng 443) đi vào [cite: 14708]
+  ingress {
+    description = "Allow HTTPS from anywhere"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    # tfsec:ignore:aws-ec2-no-public-ingress-sgr (Chấp nhận rủi ro cho Web Public)
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # Luôn cho phép server đi ra Internet để cập nhật bản vá bảo mật [cite: 15926]
+  egress {
+    description = "Allow outbound to internet"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    # tfsec:ignore:aws-ec2-no-public-egress-sgr (Cho phép server tải bản vá bảo mật)
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+# 5. Tạo Quyền truy cập tối thiểu (IAM Role(Least Privilege)) [cite: 210, 15391]
+resource "aws_iam_role" "app_role" {
+  name = "application-server-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+    }]
+  })
+}

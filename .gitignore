@@ -1,0 +1,15 @@
+# Jenkins
+jenkins_home/
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+
+# Environment
+.env
+
+# OS
+.DS_Store
