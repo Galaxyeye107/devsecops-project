@@ -38,20 +38,20 @@ pipeline {
                 }
             }
         }
+        stage('SAST - Application Security Scan') {
+            steps {
+                script {
+                    // Sử dụng ${WORKSPACE} - biến chuẩn của Jenkins để trỏ đúng vào thư mục chứa code
+                    // Thêm --quiet để log sạch sẽ hơn và --error để dừng pipeline khi có lỗi
+                    sh 'docker run --rm -v ${WORKSPACE}:/src returntocorp/semgrep semgrep scan --config auto --error'
+                }
+            }
+        }
         stage('Terraform Plan') {
             steps {
                 // Chỉ chạy Plan nếu bước Scan ở trên thành công
                 sh 'echo "Hạ tầng an toàn, bắt đầu tạo bản kế hoạch triển khai..."'
                 // sh 'terraform init && terraform plan' (Nếu bạn đã setup AWS Credentials)
-            }
-        }
-        stage('SAST - Application Security Scan') {
-            steps {
-                script {
-                    // 1. Tải và chạy Semgrep thông qua Docker (Cách này ổn định nhất)
-                    // Chúng ta dùng --error để bắt Jenkins phải báo ĐỎ nếu thấy lỗi nghiêm trọng
-                    sh 'docker run --rm -v $(pwd):/src returntocorp/semgrep semgrep scan --config auto --error'
-                }
             }
         }
     }
