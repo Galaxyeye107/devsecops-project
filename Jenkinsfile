@@ -16,7 +16,10 @@ pipeline {
         stage('Infrastructure Security Scan') {
             steps {
                 // Sử dụng Docker để chạy tfsec mà không cần cài đặt tfsec vào Jenkins server
-                sh 'docker run --rm -v $(pwd):/src aquasec/tfsec /src'
+                //sh 'docker run --rm -v $(pwd):/src aquasec/tfsec /src'
+                // Cập nhật lệnh này: Quét trực tiếp thư mục hiện tại (.) 
+                // và ép buộc trả về lỗi (exit code 1) nếu có vấn đề
+                sh 'docker run --rm -v $(pwd):/apps aquasec/tfsec /apps'
             }
         }
         
