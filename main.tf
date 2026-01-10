@@ -8,15 +8,6 @@ resource "aws_kms_key" "s3_key" {
   deletion_window_in_days = 7
   enable_key_rotation     = true # Điểm cộng bảo mật [cite: 82]
 }
-resource "aws_s3_bucket_server_side_encryption_configuration" "logs_encrypt" {
-  bucket = aws_s3_bucket.logs.id
-  rule {
-    apply_server_side_encryption_by_default {
-      kms_master_key_id = aws_kms_key.s3_key.arn
-      sse_algorithm     = "aws:kms"
-    }
-  }
-}
 
 # 2. Tạo VPC (Mạng ảo riêng biệt) 
 resource "aws_vpc" "main" {
@@ -59,11 +50,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "logs_encrypt" {
     }
   }
 }
-# Các lớp bảo vệ bắt buộc khác
-resource "aws_s3_bucket_versioning" "logs_versioning" {
-  bucket = aws_s3_bucket.logs.id
-  versioning_configuration { status = "Enabled" }
-}
+
 # Khóa Public Access (Sửa lỗi #2, #3, #5, #6, #10) - ĐIỂM ĂN TIỀN
 resource "aws_s3_bucket_public_access_block" "logs_access" {
   bucket = aws_s3_bucket.logs.id
@@ -136,4 +123,43 @@ resource "aws_iam_role" "app_role" {
       Principal = { Service = "ec2.amazonaws.com" }
     }]
   })
+}
+resource "aws_secretsmanager_secret" "db_password" {
+  name        = "prod/db/password-${random_string.suffix.result}"
+  description = "Mật khẩu quản trị cho Database RDS"
+  # Điểm DevSecOps: Gắn tag để quản lý chi phí và quyền hạn [cite: 748, 2002]
+  tags = {
+    Environment = "production"
+  }
+}
+# Khai báo máy tạo chuỗi ngẫu nhiên để tránh trùng tên tài nguyên cần cho đoạn random ở trên dòng 128
+resource "random_string" "suffix" {
+  length  = 8
+  special = false
+  upper   = false
+}
+resource "aws_secretsmanager_secret_version" "db_password_val" {
+  secret_id     = aws_secretsmanager_secret.db_password.id
+  secret_string = "MySuperSecurePassword123!" # Tạm thời để demo, sau này ta sẽ dùng biến động [cite: 496, 1895]
+}
+resource "aws_iam_policy" "secrets_policy" {
+  name        = "AllowReadDBSecret"
+  description = "Cho phép ứng dụng đọc mật khẩu từ Secrets Manager"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action   = "secretsmanager:GetSecretValue"
+        Effect   = "Allow"
+        Resource = aws_secretsmanager_secret.db_password.arn # Chỉ cho phép truy cập đúng 1 tài nguyên này [cite: 146, 205, 9665]
+      },
+    ]
+  })
+}
+
+# Gắn policy này vào Role của server bạn đã tạo ở bài trước
+resource "aws_iam_role_policy_attachment" "app_role_secrets" {
+  role       = aws_iam_role.app_role.name
+  policy_arn = aws_iam_policy.secrets_policy.arn
 }
