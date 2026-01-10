@@ -1,0 +1,8 @@
+# Bỏ qua các file tải về và file tạm
+gitleaks
+gitleaks.tar.gz
+semgrep.tar.gz
+tfsec
+jenkins_home/
+*.md
+LICENSE
