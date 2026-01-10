@@ -45,5 +45,14 @@ pipeline {
                 // sh 'terraform init && terraform plan' (Nếu bạn đã setup AWS Credentials)
             }
         }
+        stage('SAST - Application Security Scan') {
+            steps {
+                script {
+                    // 1. Tải và chạy Semgrep thông qua Docker (Cách này ổn định nhất)
+                    // Chúng ta dùng --error để bắt Jenkins phải báo ĐỎ nếu thấy lỗi nghiêm trọng
+                    sh 'docker run --rm -v $(pwd):/src returntocorp/semgrep semgrep scan --config auto --error'
+                }
+            }
+        }
     }
 }
