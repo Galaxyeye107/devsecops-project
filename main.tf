@@ -124,10 +124,18 @@ resource "aws_iam_role" "app_role" {
     }]
   })
 }
+# 1. Tạo khóa KMS riêng để mã hóa bí mật (Sửa lỗi Result #1)
+resource "aws_kms_key" "secrets_key" {
+  description             = "KMS key cho Secrets Manager"
+  deletion_window_in_days = 7
+  enable_key_rotation     = true # Tự động xoay vòng khóa mỗi năm (Security Best Practice) [cite: 10179, 11811]
+}
 resource "aws_secretsmanager_secret" "db_password" {
   name        = "prod/db/password-${random_string.suffix.result}"
   description = "Mật khẩu quản trị cho Database RDS"
   # Điểm DevSecOps: Gắn tag để quản lý chi phí và quyền hạn [cite: 748, 2002]
+  # Gắn key_id vào để mã hóa bí mật bằng KMS Key riêng
+  kms_key_id  = aws_kms_key.secrets_key.arn
   tags = {
     Environment = "production"
   }
