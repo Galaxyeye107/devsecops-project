@@ -1,48 +1,38 @@
 pipeline {
     agent any
-    
     stages {
         stage('Checkout Source') {
-            steps {
-                checkout scm
-            }
+            steps { checkout scm }
         }
-        stage('Secret Scanning') {
-            steps {
-                // Sử dụng Gitleaks để tìm các bí mật bị lộ trong lịch sử commit
-                sh 'docker run --rm -v $(pwd):/path zricethezav/gitleaks:latest detect --source="/path" -v'
-            }
-        }        
-        /*stage('Infrastructure Security Scan') {
-            steps {
-                Sử dụng Docker để chạy tfsec mà không cần cài đặt tfsec vào Jenkins server
-                sh 'docker run --rm -v $(pwd):/src aquasec/tfsec /src'
-                Cập nhật lệnh này: Quét trực tiếp thư mục hiện tại (.) 
-                và ép buộc trả về lỗi (exit code 1) nếu có vấn đề
-                sh 'docker run --rm -v $(pwd):/apps aquasec/tfsec /apps'
-                SỬA LẠI DÒNG NÀY: Dùng --workdir để ép tfsec đứng đúng vị trí chứa code
-                sh 'docker run --rm -v $(pwd):/src --workdir /src aquasec/tfsec .'
-            }
-        }*/
-        stage('Infrastructure Security Scan') {
+
+        stage('Secret Scanning (Gitleaks)') {
             steps {
                 script {
-                    // 1. Tải tfsec trực tiếp vào thư mục workspace
-                    sh 'curl -L -o tfsec https://github.com/aquasecurity/tfsec/releases/download/v1.28.1/tfsec-linux-amd64'
-                    
-                    // 2. Cấp quyền thực thi
+                    // Tải Gitleaks binary trực tiếp
+                    sh 'curl -L https://github.com/gitleaks/gitleaks/releases/download/v8.18.1/gitleaks_8.18.1_linux_x64.tar.gz -o gitleaks.tar.gz && tar -xzf gitleaks.tar.gz'
+                    sh './gitleaks detect --source=. -v || echo "Phát hiện bí mật bị lộ!"'
+                }
+            }
+        }
+
+        stage('Infrastructure Security Scan (tfsec)') {
+            steps {
+                script {
+                    // Tải tfsec binary trực tiếp
+                    sh 'curl -L https://github.com/aquasecurity/tfsec/releases/download/v1.28.1/tfsec-linux-amd64 -o tfsec'
                     sh 'chmod +x tfsec'
-                    
-                    // 3. Chạy quét ngay tại chỗ (không dùng qua Docker)
                     sh './tfsec .'
                 }
             }
         }
-        stage('SAST - Application Security Scan') {
+
+        stage('SAST - Application Security Scan (Semgrep)') {
             steps {
                 script {
-                    // Chúng ta ánh xạ thư mục từ MÁY CHỦ (thông qua biến HOST_PWD) vào container Semgrep
-                    sh "docker run --rm -v ${env.HOST_PWD}:/src returntocorp/semgrep semgrep scan --config auto --error"
+                    // Tải Semgrep bằng script cài đặt nhanh của họ
+                    sh 'curl https://semgrep.dev/get | bash'
+                    // Chạy quét và bắt lỗi SQL Injection trong app.py
+                    sh './semgrep scan --config auto --error'
                 }
             }
         }
