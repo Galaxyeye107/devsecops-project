@@ -41,9 +41,11 @@ pipeline {
         stage('SAST - Application Security Scan') {
             steps {
                 script {
-                    // Sử dụng ${WORKSPACE} - biến chuẩn của Jenkins để trỏ đúng vào thư mục chứa code
-                    // Thêm --quiet để log sạch sẽ hơn và --error để dừng pipeline khi có lỗi
-                    sh 'docker run --rm -v ${WORKSPACE}:/src returntocorp/semgrep semgrep scan --config auto --error'
+                    // 1. Cài đặt Semgrep thông qua pip trực tiếp trong container Jenkins
+                    // (Hầu hết image jenkins/jenkins:lts đã có sẵn python/pip)
+                    sh 'pip install semgrep --break-system-packages || python3 -m pip install semgrep --break-system-packages'
+                    // 2. Chạy quét trực tiếp trên thư mục hiện tại
+                    sh 'semgrep scan --config auto --error'
                 }
             }
         }
