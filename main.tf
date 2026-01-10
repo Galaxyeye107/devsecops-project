@@ -163,3 +163,16 @@ resource "aws_iam_role_policy_attachment" "app_role_secrets" {
   role       = aws_iam_role.app_role.name
   policy_arn = aws_iam_policy.secrets_policy.arn
 }
+resource "aws_security_group" "insecure_sg" {
+  name        = "insecure-ssh-access"
+  vpc_id      = aws_vpc.main.id
+  description = "MAI PHUC PHAN LOI BAO MAT"
+
+  ingress {
+    description = "Open SSH to world"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"] # LỖI CHÍ TỬ Ở ĐÂY
+  }
+}
