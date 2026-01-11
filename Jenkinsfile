@@ -5,9 +5,7 @@ pipeline {
     // TÙY CHỌN CHUNG CHO PIPELINE
     // =========================
     options {
-        timestamps()                // Hiển thị timestamp cho mỗi log
-        ansiColor('xterm')          // Log có màu, dễ đọc
-    }
+        timestamps()                // Hiển thị timestamp cho mỗi log       
 
     // =========================
     // BIẾN MÔI TRƯỜNG DÙNG CHUNG
