@@ -68,24 +68,20 @@ pipeline {
         stage('Security Reports Dashboard') {
             steps {
                 script {
-                    // Chúng ta sử dụng scanForIssues để quét các file JSON 
-                    // và gán chúng vào Dashboard với tên hiển thị tương ứng
+                    // Chúng ta sử dụng recordIssues với cú pháp 'issues' tổng quát
+                    // Điều này giúp tránh lỗi "NoSuchMethodError" của Jenkins
                     
-                    // 1. Đọc kết quả Gitleaks
-                    def gitleaksIssues = scanForIssues tool: gitleaks(pattern: 'gitleaks.json'), id: 'gitleaks', name: 'Gitleaks Scan'
+                    // 1. Quét lỗi Secrets (Gitleaks)
+                    recordIssues(tool: issues(pattern: 'gitleaks.json'), id: 'gitleaks', name: 'Gitleaks Scan')
                     
-                    // 2. Đọc kết quả tfsec
-                    def tfsecIssues = scanForIssues tool: terraform(pattern: 'tfsec.json'), id: 'tfsec', name: 'Terraform Scan'
+                    // 2. Quét lỗi Hạ tầng (tfsec)
+                    recordIssues(tool: issues(pattern: 'tfsec.json'), id: 'tfsec', name: 'Terraform Scan')
                     
-                    // 3. Đọc kết quả Semgrep
-                    // Semgrep thường dùng định dạng checkstyle hoặc bộ lọc issues chung
-                    def semgrepIssues = scanForIssues tool: issues(pattern: 'semgrep.json'), id: 'semgrep', name: 'Semgrep Scan'
+                    // 3. Quét lỗi Mã nguồn (Semgrep)
+                    recordIssues(tool: issues(pattern: 'semgrep.json'), id: 'semgrep', name: 'Semgrep Scan')
                     
-                    // 4. Đọc kết quả Trivy
-                    def trivyIssues = scanForIssues tool: trivy(pattern: 'trivy.json'), id: 'trivy', name: 'Container Scan'
-
-                    // Tổng hợp tất cả lên biểu đồ
-                    publishIssues issues: [gitleaksIssues, tfsecIssues, semgrepIssues, trivyIssues]
+                    // 4. Quét lỗi Container (Trivy)
+                    recordIssues(tool: issues(pattern: 'trivy.json'), id: 'trivy', name: 'Container Scan')
                 }
             }
         }
