@@ -6,7 +6,7 @@ pipeline {
     // =========================
     options {
         timestamps()                // Hiển thị timestamp cho mỗi log       
-
+    }
     // =========================
     // BIẾN MÔI TRƯỜNG DÙNG CHUNG
     // =========================
