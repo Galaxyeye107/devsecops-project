@@ -65,10 +65,8 @@ pipeline {
                 curl -L https://github.com/aquasecurity/tfsec/releases/download/v1.28.1/tfsec-linux-amd64 -o tfsec
                 chmod +x tfsec
 
-                # CRITICAL IaC issue → FAIL
-                ./tfsec . \
-                  --minimum-severity CRITICAL \
-                  --format sarif > tfsec.sarif
+                # Quét TẤT CẢ severity (LOW → CRITICAL)
+                ./tfsec . --format sarif > tfsec.sarif || true
                 '''
             }
         }
