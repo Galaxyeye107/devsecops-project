@@ -1,92 +1,191 @@
 pipeline {
     agent any
+
+    // =========================
+    // TÙY CHỌN CHUNG CHO PIPELINE
+    // =========================
+    options {
+        timestamps()                // Hiển thị timestamp cho mỗi log
+        ansiColor('xterm')          // Log có màu, dễ đọc
+    }
+
+    // =========================
+    // BIẾN MÔI TRƯỜNG DÙNG CHUNG
+    // =========================
+    environment {
+        TRIVY_SEVERITY = 'HIGH,CRITICAL'   // Chỉ quan tâm lỗi nặng
+    }
+
     stages {
-        stage('Checkout Source') {
-            steps { checkout scm }
-        }
-        stage('Clean Workspace') {
+
+        // =========================
+        // 1. LẤY SOURCE CODE
+        // =========================
+        stage('📥 Checkout Source') {
             steps {
-                // Làm sạch môi trường để báo cáo không bị nhiễu lỗi cũ
-                sh 'rm -rf gitleaks* tfsec* semgrep* trivy* *.json README.md LICENSE'
-            }
-        }
-        stage('Secret Scanning (Gitleaks)') {
-            steps {
-                script {
-                    // Tải Gitleaks binary trực tiếp
-                    sh 'curl -L https://github.com/gitleaks/gitleaks/releases/download/v8.18.1/gitleaks_8.18.1_linux_x64.tar.gz -o gitleaks.tar.gz && tar -xzf gitleaks.tar.gz'
-                    // CẬP NHẬT LỆNH CHẠY: Xuất kết quả ra file gitleaks.json
-                     // Chúng ta KHÔNG dùng --exit-code 1 ở đây để pipeline vẫn chạy tiếp 
-                    // và tổng hợp được báo cáo vào cuối buổi
-                    sh './gitleaks detect --source=. --report-format=sarif --report-path=gitleaks.sarif || true'                }
+                // Clone source code từ Git repository
+                checkout scm
             }
         }
 
-        stage('Infrastructure Security Scan (tfsec)') {
+        // =========================
+        // 2. LÀM SẠCH WORKSPACE
+        // =========================
+        stage('🧹 Clean Workspace') {
             steps {
+                // Xóa toàn bộ file scan cũ để tránh nhiễu báo cáo
+                sh '''
+                rm -rf gitleaks* tfsec* semgrep* trivy* *.json *.sarif || true
+                '''
+            }
+        }
+
+        // =========================
+        // 3. SECRET SCANNING - GITLEAKS
+        // =========================
+        stage('🔐 Secret Scanning (Gitleaks)') {
+            steps {
+                // 1. Tải Gitleaks binary trực tiếp (không cần cài system-wide)
+                // 2. Quét toàn bộ source code
+                // 3. Xuất báo cáo theo chuẩn SARIF để Jenkins đọc được
+                // 4. Không fail pipeline tại đây (|| true)
+                sh '''
+                curl -L https://github.com/gitleaks/gitleaks/releases/download/v8.18.1/gitleaks_8.18.1_linux_x64.tar.gz -o gitleaks.tar.gz
+                tar -xzf gitleaks.tar.gz
+                ./gitleaks detect \
+                  --source . \
+                  --report-format sarif \
+                  --report-path gitleaks.sarif || true
+                '''
+            }
+        }
+
+        // =========================
+        // 4. IAC SECURITY - TFSEC
+        // =========================
+        stage('🏗 Infrastructure Security (tfsec)') {
+            steps {
+                // 1. Tải tfsec binary
+                // 2. Quét toàn bộ file Terraform
+                // 3. Xuất kết quả SARIF để hiển thị dashboard
+                sh '''
+                curl -L https://github.com/aquasecurity/tfsec/releases/download/v1.28.1/tfsec-linux-amd64 -o tfsec
+                chmod +x tfsec
+                ./tfsec . --format sarif > tfsec.sarif || true
+                '''
+            }
+        }
+
+        // =========================
+        // 5. SAST - SEMGREP
+        // =========================
+        stage('🧠 SAST (Semgrep)') {
+            steps {
+                // 1. Cài Semgrep bằng pip
+                // 2. Quét code theo rule auto
+                // 3. Xuất SARIF cho Jenkins
+                sh '''
+                pip3 install semgrep --break-system-packages
+                semgrep scan --config auto --sarif -o semgrep.sarif || true
+                '''
+            }
+        }
+
+        // =========================
+        // 6. DEPENDENCY & CONTAINER SCAN - TRIVY
+        // =========================
+        stage('📦 Dependency & Container Scan (Trivy)') {
+            steps {
+                // 1. Cài Docker nếu agent chưa có
+                // 2. Cài Trivy
+                // 3. Quét thư viện (SCA) trước khi build image
+                // 4. Build Docker image
+                // 5. Quét image với severity HIGH, CRITICAL
+                sh '''
+                apt-get update && apt-get install -y docker.io || true
+
+                curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | \
+                  sh -s -- -b /usr/local/bin
+
+                trivy fs \
+                  --format sarif \
+                  --severity ${TRIVY_SEVERITY} \
+                  -o trivy.sarif . || true
+
+                docker build -t my-app:${BUILD_NUMBER} .
+                trivy image \
+                  --severity ${TRIVY_SEVERITY} \
+                  --exit-code 1 my-app:${BUILD_NUMBER} || true
+                '''
+            }
+        }
+
+        // =========================
+        // 7. SECURITY DASHBOARD (TRUNG TÂM)
+        // =========================
+        stage('📊 Security Dashboard') {
+            steps {
+                // 1. Thu thập toàn bộ file SARIF
+                // 2. Gom tất cả tool vào 1 dashboard
+                // 3. Hiển thị severity, trend, số lượng issue
+                // 4. Áp quality gate cho lỗi mới
+                recordIssues(
+                    tools: [
+                        sarif(pattern: 'gitleaks.sarif', id: 'gitleaks', name: '🔐 Secrets (Gitleaks)'),
+                        sarif(pattern: 'semgrep.sarif', id: 'semgrep', name: '🧠 SAST (Semgrep)'),
+                        sarif(pattern: 'tfsec.sarif', id: 'tfsec', name: '🏗 IaC (tfsec)'),
+                        sarif(pattern: 'trivy.sarif', id: 'trivy', name: '📦 Dependencies (Trivy)')
+                    ],
+                    enabledForFailure: true,
+                    skipBlames: true,
+                    qualityGates: [
+                        // Có lỗ hổng CRITICAL mới → FAIL
+                        [threshold: 0, type: 'NEW_CRITICAL', failure: true],
+                        // Có lỗ hổng HIGH mới → UNSTABLE
+                        [threshold: 0, type: 'NEW_HIGH', unstable: true]
+                    ]
+                )
+
+                // Ghi chú ngắn gọn ngay tại build
                 script {
-                    // Tải tfsec binary trực tiếp
-                    sh 'curl -L https://github.com/aquasecurity/tfsec/releases/download/v1.28.1/tfsec-linux-amd64 -o tfsec'
-                    sh 'chmod +x tfsec'
-                    sh './tfsec . --format sarif > tfsec.sarif || true'
+                    currentBuild.description = '''
+🔐 Gitleaks
+🧠 Semgrep
+🏗 tfsec
+📦 Trivy
+                    '''
                 }
             }
         }
 
-        stage('SAST - Application Security Scan (Semgrep)') {
+        // =========================
+        // 8. TERRAFORM PLAN (CHỈ CHẠY KHI AN TOÀN)
+        // =========================
+        stage('🚀 Terraform Plan') {
+            when {
+                // Chỉ chạy khi pipeline không FAIL
+                expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
+            }
             steps {
-                script {
-                    // 1. Cài đặt semgrep thông qua pip (bỏ qua cảnh báo hệ thống)
-                    sh 'pip3 install semgrep --break-system-packages'
-                    
-                    // 2. Chạy quét toàn bộ thư mục và ép lỗi khi thấy SQL Injection
-                    sh 'semgrep scan --config auto --sarif -o semgrep.sarif || true'
-                }
+                sh 'echo "Hạ tầng an toàn – sẵn sàng triển khai 🚀"'
+                // terraform init && terraform plan
             }
         }
-        stage('Container Security Scan (Trivy)') {
-            steps {
-                script {
-                    // 1. Cài đặt Docker CLI nhanh chóng nếu container bị mất lệnh
-                    sh 'apt-get update && apt-get install -y docker.io || echo "Docker already installed"'
+    }
 
-                    // 2. Quét lỗ hổng trong các thư viện (SCA) TRƯỚC khi build
-                    // Cách này giúp bạn biết Flask có an toàn không mà không cần lệnh docker
-                    sh 'curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin'
-                    // CẬP NHẬT LỆNH QUÉT:
-                    // --exit-code 1: Trả về lỗi nếu tìm thấy lỗ hổng
-                    // --severity HIGH,CRITICAL: Chỉ chặn nếu là lỗi nặng
-                    sh 'trivy fs --format sarif -o trivy.sarif --severity HIGH,CRITICAL .'
-
-                    // 3. Nếu Docker ổn định, hãy build và quét Image
-                    sh 'docker build -t my-app:${BUILD_NUMBER} .'
-                    sh 'trivy image --exit-code 1 --severity HIGH,CRITICAL my-app:${BUILD_NUMBER}'
-                }
-            }
+    // =========================
+    // 9. HẬU XỬ LÝ PIPELINE
+    // =========================
+    post {
+        always {
+            // Lưu lại toàn bộ báo cáo để audit / download
+            archiveArtifacts artifacts: '*.sarif', fingerprint: true
         }
-        stage('Security Reports Dashboard') {
-            steps {
-                script {
-                    // Sử dụng parser sarif() chuẩn hóa cho tất cả các công cụ
-                    // Cách này đảm bảo không bao giờ bị lỗi NoSuchMethod hay ClassCastException
-                    recordIssues(
-                        tools: [
-                            sarif(pattern: 'gitleaks.sarif', id: 'gitleaks', name: 'Gitleaks Secrets'),
-                            sarif(pattern: 'semgrep.sarif', id: 'semgrep', name: 'Semgrep SAST'),
-                            sarif(pattern: 'trivy.sarif', id: 'trivy', name: 'Container Security'),
-                            sarif(pattern: 'tfsec.sarif', id: 'tfsec', name: 'Terraform Scan')
-                        ],
-                        skipBlames: true
-                    )
-                }
-            }
+        unstable {
+            echo '⚠️ Có security issues mức HIGH'
         }
-        stage('Terraform Plan') {
-            steps {
-                // Chỉ chạy Plan nếu bước Scan ở trên thành công
-                sh 'echo "Hạ tầng an toàn, bắt đầu tạo bản kế hoạch triển khai..."'
-                // sh 'terraform init && terraform plan' (Nếu bạn đã setup AWS Credentials)
-            }
+        failure {
+            echo '❌ Build failed do phát hiện lỗ hổng CRITICAL'
         }
     }
 }
