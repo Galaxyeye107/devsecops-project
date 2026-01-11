@@ -37,6 +37,18 @@ pipeline {
                 }
             }
         }
+        stage('Container Security Scan (Trivy)') {
+            steps {
+                script {
+                    // 1. Build thử image
+                    sh 'docker build -t my-app:${BUILD_NUMBER} .'
+                    
+                    // 2. Tải và chạy Trivy để quét Image vừa build
+                    sh 'curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin'
+                    sh 'trivy image --severity HIGH,CRITICAL my-app:${BUILD_NUMBER}'
+                }
+            }
+        }
         stage('Terraform Plan') {
             steps {
                 // Chỉ chạy Plan nếu bước Scan ở trên thành công
