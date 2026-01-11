@@ -10,7 +10,10 @@ pipeline {
                 script {
                     // Tải Gitleaks binary trực tiếp
                     sh 'curl -L https://github.com/gitleaks/gitleaks/releases/download/v8.18.1/gitleaks_8.18.1_linux_x64.tar.gz -o gitleaks.tar.gz && tar -xzf gitleaks.tar.gz'
-                    sh './gitleaks detect --source=. -v || echo "Phát hiện bí mật bị lộ!"'
+                    // CẬP NHẬT LỆNH CHẠY: Xuất kết quả ra file gitleaks.json
+                     // Chúng ta KHÔNG dùng --exit-code 1 ở đây để pipeline vẫn chạy tiếp 
+                    // và tổng hợp được báo cáo vào cuối buổi
+                    sh './gitleaks detect --source=. --report-format=json --report-path=gitleaks.json || echo "Phát hiện bí mật!"'
                 }
             }
         }
@@ -55,6 +58,16 @@ pipeline {
                     sh 'docker build -t my-app:${BUILD_NUMBER} .'
                     sh 'trivy image --exit-code 1 --severity HIGH,CRITICAL my-app:${BUILD_NUMBER}'
                 }
+            }
+        }
+        stage('Security Reports') {
+            steps {
+                recordIssues(tools: [
+                    gitleaks(pattern: 'gitleaks.json', id: 'gitleaks', name: 'Gitleaks Scan'),
+                    terraform(pattern: 'tfsec.json', id: 'tfsec', name: 'Terraform Scan'),
+                    semgrep(pattern: 'semgrep.json', id: 'semgrep', name: 'Semgrep Scan'),
+                    trivy(pattern: 'trivy.json', id: 'trivy', name: 'Container Scan')
+                ])
             }
         }
         stage('Terraform Plan') {
