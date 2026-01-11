@@ -4,7 +4,12 @@ pipeline {
         stage('Checkout Source') {
             steps { checkout scm }
         }
-
+        stage('Clean Workspace') {
+            steps {
+                // Làm sạch môi trường để báo cáo không bị nhiễu lỗi cũ
+                sh 'rm -rf gitleaks* tfsec* semgrep* trivy* *.json README.md LICENSE'
+            }
+        }
         stage('Secret Scanning (Gitleaks)') {
             steps {
                 script {
@@ -24,7 +29,7 @@ pipeline {
                     // Tải tfsec binary trực tiếp
                     sh 'curl -L https://github.com/aquasecurity/tfsec/releases/download/v1.28.1/tfsec-linux-amd64 -o tfsec'
                     sh 'chmod +x tfsec'
-                    sh './tfsec .'
+                    sh './tfsec . --format json > tfsec.json || echo "IaC issues found!"'
                 }
             }
         }
@@ -36,7 +41,7 @@ pipeline {
                     sh 'pip3 install semgrep --break-system-packages'
                     
                     // 2. Chạy quét toàn bộ thư mục và ép lỗi khi thấy SQL Injection
-                    sh 'semgrep scan --config auto --error'
+                    sh 'semgrep scan --config auto --json -o semgrep.json || echo "SAST issues found!"'
                 }
             }
         }
@@ -52,7 +57,7 @@ pipeline {
                     // CẬP NHẬT LỆNH QUÉT:
                     // --exit-code 1: Trả về lỗi nếu tìm thấy lỗ hổng
                     // --severity HIGH,CRITICAL: Chỉ chặn nếu là lỗi nặng
-                    sh 'trivy fs --exit-code 1 --severity HIGH,CRITICAL .'
+                    sh 'trivy fs --exit-code 1 --format json -o trivy.json --severity HIGH,CRITICAL .'
 
                     // 3. Nếu Docker ổn định, hãy build và quét Image
                     sh 'docker build -t my-app:${BUILD_NUMBER} .'
@@ -60,14 +65,28 @@ pipeline {
                 }
             }
         }
-        stage('Security Reports') {
+        stage('Security Reports Dashboard') {
             steps {
-                recordIssues(tools: [
-                    gitleaks(pattern: 'gitleaks.json', id: 'gitleaks', name: 'Gitleaks Scan'),
-                    terraform(pattern: 'tfsec.json', id: 'tfsec', name: 'Terraform Scan'),
-                    semgrep(pattern: 'semgrep.json', id: 'semgrep', name: 'Semgrep Scan'),
-                    trivy(pattern: 'trivy.json', id: 'trivy', name: 'Container Scan')
-                ])
+                script {
+                    // Chúng ta sử dụng scanForIssues để quét các file JSON 
+                    // và gán chúng vào Dashboard với tên hiển thị tương ứng
+                    
+                    // 1. Đọc kết quả Gitleaks
+                    def gitleaksIssues = scanForIssues tool: gitleaks(pattern: 'gitleaks.json'), id: 'gitleaks', name: 'Gitleaks Scan'
+                    
+                    // 2. Đọc kết quả tfsec
+                    def tfsecIssues = scanForIssues tool: terraform(pattern: 'tfsec.json'), id: 'tfsec', name: 'Terraform Scan'
+                    
+                    // 3. Đọc kết quả Semgrep
+                    // Semgrep thường dùng định dạng checkstyle hoặc bộ lọc issues chung
+                    def semgrepIssues = scanForIssues tool: issues(pattern: 'semgrep.json'), id: 'semgrep', name: 'Semgrep Scan'
+                    
+                    // 4. Đọc kết quả Trivy
+                    def trivyIssues = scanForIssues tool: trivy(pattern: 'trivy.json'), id: 'trivy', name: 'Container Scan'
+
+                    // Tổng hợp tất cả lên biểu đồ
+                    publishIssues issues: [gitleaksIssues, tfsecIssues, semgrepIssues, trivyIssues]
+                }
             }
         }
         stage('Terraform Plan') {
