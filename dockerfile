@@ -1,19 +1,24 @@
-# Sử dụng bản slim để ít lỗ hổng nhất
-FROM python:3.9-slim
+# Giai đoạn 1: Build (Sử dụng Image đầy đủ để cài đặt)
+FROM python:3.9-slim as builder
+WORKDIR /app
+COPY requirements.txt .
+# Cài đặt thư viện vào một thư mục riêng
+RUN pip install --user --no-cache-dir -r requirements.txt
 
-# Tạo thư mục app
+# Giai đoạn 2: Runtime (Image cuối cùng - Cực kỳ tinh gọn)
+FROM python:3.9-slim
 WORKDIR /app
 
-# Sao chép và cài đặt thư viện
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy code ứng dụng
+# Chỉ copy những thư viện đã cài đặt từ giai đoạn builder
+COPY --from=builder /root/.local /root/.local
 COPY app.py .
 
-# ĐIỂM BẢO MẬT QUAN TRỌNG: Chuyển sang user thường
-RUN useradd -m myuser
-USER myuser
+# Đảm bảo đường dẫn thư viện chính xác
+ENV PATH=/root/.local/bin:$PATH
 
-# Chạy ứng dụng
+# ĐIỂM BẢO MẬT: Chạy với User không có quyền root
+RUN useradd -m appuser
+USER appuser
+
+EXPOSE 5000
 CMD ["python", "app.py"]
