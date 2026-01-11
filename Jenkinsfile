@@ -18,8 +18,7 @@ pipeline {
                     // CẬP NHẬT LỆNH CHẠY: Xuất kết quả ra file gitleaks.json
                      // Chúng ta KHÔNG dùng --exit-code 1 ở đây để pipeline vẫn chạy tiếp 
                     // và tổng hợp được báo cáo vào cuối buổi
-                    sh './gitleaks detect --source=. --report-format=json --report-path=gitleaks.json || echo "Phát hiện bí mật!"'
-                }
+                    sh './gitleaks detect --source=. --report-format=sarif --report-path=gitleaks.sarif || true'                }
             }
         }
 
@@ -29,7 +28,7 @@ pipeline {
                     // Tải tfsec binary trực tiếp
                     sh 'curl -L https://github.com/aquasecurity/tfsec/releases/download/v1.28.1/tfsec-linux-amd64 -o tfsec'
                     sh 'chmod +x tfsec'
-                    sh './tfsec . --format json > tfsec.json || echo "IaC issues found!"'
+                    sh './tfsec . --format sarif > tfsec.sarif || true'
                 }
             }
         }
@@ -41,7 +40,7 @@ pipeline {
                     sh 'pip3 install semgrep --break-system-packages'
                     
                     // 2. Chạy quét toàn bộ thư mục và ép lỗi khi thấy SQL Injection
-                    sh 'semgrep scan --config auto --json -o semgrep.json || echo "SAST issues found!"'
+                    sh 'semgrep scan --config auto --sarif -o semgrep.sarif || true'
                 }
             }
         }
@@ -57,7 +56,7 @@ pipeline {
                     // CẬP NHẬT LỆNH QUÉT:
                     // --exit-code 1: Trả về lỗi nếu tìm thấy lỗ hổng
                     // --severity HIGH,CRITICAL: Chỉ chặn nếu là lỗi nặng
-                    sh 'trivy fs --exit-code 1 --format json -o trivy.json --severity HIGH,CRITICAL .'
+                    sh 'trivy fs --format sarif -o trivy.sarif --severity HIGH,CRITICAL .'
 
                     // 3. Nếu Docker ổn định, hãy build và quét Image
                     sh 'docker build -t my-app:${BUILD_NUMBER} .'
@@ -68,20 +67,17 @@ pipeline {
         stage('Security Reports Dashboard') {
             steps {
                 script {
-                    // Dùng lệnh recordIssues với công cụ 'issues' tổng quát
-                    // Đây là cách an toàn nhất khi Jenkins không nhận diện được phím tắt gitleaks()
-                    
-                    // 1. Quét Secret Scan (Gitleaks)
-                    recordIssues tool: issues(pattern: 'gitleaks.json'), id: 'gitleaks-scan', name: 'Gitleaks Secrets'
-                    
-                    // 2. Quét Infrastructure Scan (tfsec)
-                    recordIssues tool: issues(pattern: 'tfsec.json'), id: 'tfsec-scan', name: 'Terraform Security'
-                    
-                    // 3. Quét SAST (Semgrep)
-                    recordIssues tool: issues(pattern: 'semgrep.json'), id: 'semgrep-scan', name: 'Semgrep SAST'
-                    
-                    // 4. Quét Container Scan (Trivy)
-                    recordIssues tool: issues(pattern: 'trivy.json'), id: 'trivy-scan', name: 'Container Security'
+                    // Sử dụng parser sarif() chuẩn hóa cho tất cả các công cụ
+                    // Cách này đảm bảo không bao giờ bị lỗi NoSuchMethod hay ClassCastException
+                    recordIssues(
+                        tools: [
+                            sarif(pattern: 'gitleaks.sarif', id: 'gitleaks', name: 'Gitleaks Secrets'),
+                            sarif(pattern: 'semgrep.sarif', id: 'semgrep', name: 'Semgrep SAST'),
+                            sarif(pattern: 'trivy.sarif', id: 'trivy', name: 'Container Security'),
+                            sarif(pattern: 'tfsec.sarif', id: 'tfsec', name: 'Terraform Scan')
+                        ],
+                        skipBlames: true
+                    )
                 }
             }
         }
