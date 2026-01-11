@@ -43,6 +43,7 @@ pipeline {
                 # KHÔNG FAIL – chỉ tạo report
                 ./gitleaks detect \
                   --source . \
+                  --no-git \
                   --report-format sarif \
                   --report-path gitleaks.sarif || true
                 '''
@@ -94,6 +95,7 @@ pipeline {
                 trivy fs \
                   --severity HIGH,CRITICAL \
                   --exit-code 0 \
+                  --skip-dirs .git,node_modules,.terraform,.venv,target,dist \
                   --format sarif \
                   -o trivy.sarif .
 
