@@ -46,11 +46,14 @@ pipeline {
                     // 2. Quét lỗ hổng trong các thư viện (SCA) TRƯỚC khi build
                     // Cách này giúp bạn biết Flask có an toàn không mà không cần lệnh docker
                     sh 'curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin'
-                    sh 'trivy fs --severity HIGH,CRITICAL .' 
+                    // CẬP NHẬT LỆNH QUÉT:
+                    // --exit-code 1: Trả về lỗi nếu tìm thấy lỗ hổng
+                    // --severity HIGH,CRITICAL: Chỉ chặn nếu là lỗi nặng
+                    sh 'trivy fs --exit-code 1 --severity HIGH,CRITICAL .'
 
                     // 3. Nếu Docker ổn định, hãy build và quét Image
                     sh 'docker build -t my-app:${BUILD_NUMBER} .'
-                    sh 'trivy image --severity HIGH,CRITICAL my-app:${BUILD_NUMBER}'
+                    sh 'trivy image --exit-code 1 --severity HIGH,CRITICAL my-app:${BUILD_NUMBER}'
                 }
             }
         }
