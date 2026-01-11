@@ -68,25 +68,15 @@ pipeline {
         stage('Security Reports Dashboard') {
             steps {
                 script {
-                    // Sử dụng các Parser được thiết kế riêng cho từng công cụ để tránh lỗi ép kiểu JSON
-                    recordIssues(
-                        tools: [
-                            // Gitleaks: Sử dụng parser định dạng Gitleaks (thường là mảng JSON)
-                            gitleaks(pattern: 'gitleaks.json', id: 'gitleaks', name: 'Gitleaks Scan'),
-                    
-                            // Terraform: Parser dành riêng cho tfsec JSON
-                            terraform(pattern: 'tfsec.json', id: 'tfsec', name: 'Terraform Scan'),
-                    
-                            // Semgrep: Parser dành riêng cho định dạng JSON của Semgrep
-                            semgrep(pattern: 'semgrep.json', id: 'semgrep', name: 'Semgrep Scan'),
-                    
-                            // Container: Parser dành riêng cho Trivy JSON
-                            trivy(pattern: 'trivy.json', id: 'trivy', name: 'Container Scan')
-                        ],
-                        // Tùy chọn này giúp Pipeline không bị dừng nếu file JSON bị trống hoặc lỗi định dạng
-                        skipBlames: true,
-                        failedTotalAll: 100 // Chỉ đánh dấu fail nếu tổng lỗi vượt quá 100
-                    )
+                    // 1. Quét file JSON và tạo đối tượng Issues cho từng loại
+                    // Chúng ta dùng ID định danh của parser để Jenkins không bị nhầm lẫn
+                    def gitleaksReport = scanForIssues tool: gitleaks(pattern: 'gitleaks.json'), id: 'gitleaks-report', name: 'Gitleaks Secrets'
+                    def tfsecReport    = scanForIssues tool: terraform(pattern: 'tfsec.json'), id: 'tfsec-report', name: 'Terraform Security'
+                    def semgrepReport  = scanForIssues tool: checkStyle(pattern: 'semgrep.json'), id: 'semgrep-report', name: 'Semgrep SAST'
+                    def trivyReport    = scanForIssues tool: trivy(pattern: 'trivy.json'), id: 'trivy-report', name: 'Container Security'
+
+                    // 2. Hiển thị tất cả lên Dashboard
+                    publishIssues issues: [gitleaksReport, tfsecReport, semgrepReport, trivyReport]
                 }
             }
         }
