@@ -113,28 +113,40 @@ pipeline {
         // 7. SECURITY DASHBOARD (QUAN TRỌNG)
         // =========================
         stage('📊 Security Dashboard') {
-            steps {
-                recordIssues(
-                    tools: [
-                        sarif(pattern: 'gitleaks.sarif', id: 'gitleaks', name: '🔐 Secrets (Gitleaks)'),
-                        sarif(pattern: 'tfsec.sarif',    id: 'tfsec',    name: '🏗 IaC (tfsec)'),
-                        sarif(pattern: 'semgrep.sarif',  id: 'semgrep',  name: '🧠 SAST (Semgrep)'),
-                        sarif(pattern: 'trivy.sarif',    id: 'trivy',    name: '📦 Dependencies (Trivy)')
-                    ],
-                    enabledForFailure: true,
-                    skipBlames: true
-                )
+    steps {
+        recordIssues(
+            tools: [
+                sarif(pattern: 'gitleaks.sarif', id: 'gitleaks', name: '🔐 Secrets (Gitleaks)'),
+                sarif(pattern: 'tfsec.sarif',    id: 'tfsec',    name: '🏗 IaC (tfsec)'),
+                sarif(pattern: 'semgrep.sarif',  id: 'semgrep',  name: '🧠 SAST (Semgrep)'),
+                sarif(pattern: 'trivy.sarif',    id: 'trivy',    name: '📦 Dependencies (Trivy)')
+            ],
+            enabledForFailure: true,
+            skipBlames: true,
 
-                script {
-                    currentBuild.description = '''
+            // =========================
+            // QUALITY GATES (CHUẨN)
+            // =========================
+            qualityGates: [
+                // Có BẤT KỲ issue nào → UNSTABLE
+                [threshold: 1, type: 'TOTAL', unstable: true],
+
+                // Trên 5 issues → FAIL
+                [threshold: 5, type: 'TOTAL']
+            ]
+        )
+
+        script {
+            currentBuild.description = '''
 🔐 Gitleaks – Secrets
 🏗 tfsec – Terraform
 🧠 Semgrep – SAST
 📦 Trivy – SCA / Image
-                    '''
-                }
-            }
+            '''
         }
+    }
+}
+
 
         // =========================
         // 8. TERRAFORM PLAN (KHÔNG BỊ SKIP)
