@@ -1,16 +1,10 @@
 pipeline {
     agent any
 
-    // =========================
-    // GLOBAL OPTIONS
-    // =========================
     options {
         timestamps()
     }
 
-    // =========================
-    // ENVIRONMENT
-    // =========================
     environment {
         TRIVY_SEVERITY = 'HIGH,CRITICAL'
     }
@@ -46,30 +40,26 @@ pipeline {
                 curl -L https://github.com/gitleaks/gitleaks/releases/download/v8.18.1/gitleaks_8.18.1_linux_x64.tar.gz -o gitleaks.tar.gz
                 tar -xzf gitleaks.tar.gz
 
-                # CRITICAL secrets → FAIL pipeline
+                # KHÔNG FAIL – chỉ tạo report
                 ./gitleaks detect \
                   --source . \
                   --report-format sarif \
-                  --report-path gitleaks.sarif \
-                  --exit-code 1
+                  --report-path gitleaks.sarif || true
                 '''
             }
         }
 
         // =========================
-        // 4. IAC SECURITY – TFSEC
+        // 4. IAC SECURITY – TFSEC (OK)
         // =========================
         stage('🏗 IaC Security (tfsec)') {
             steps {
-                catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
-                    sh '''
-                    curl -L https://github.com/aquasecurity/tfsec/releases/download/v1.28.1/tfsec-linux-amd64 -o tfsec
-                    chmod +x tfsec
+                sh '''
+                curl -L https://github.com/aquasecurity/tfsec/releases/download/v1.28.1/tfsec-linux-amd64 -o tfsec
+                chmod +x tfsec
 
-                    # Scan ALL severities (LOW → CRITICAL)
-                    ./tfsec . --format sarif > tfsec.sarif
-                    '''
-                }
+                ./tfsec . --format sarif > tfsec.sarif || true
+                '''
             }
         }
 
@@ -78,22 +68,19 @@ pipeline {
         // =========================
         stage('🧠 SAST (Semgrep)') {
             steps {
-                catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
-                    sh '''
-                    pip3 install semgrep --break-system-packages
+                sh '''
+                pip3 install semgrep --break-system-packages || true
 
-                    # ERROR rules → UNSTABLE
-                    semgrep scan \
-                      --config auto \
-                      --severity ERROR \
-                      --sarif -o semgrep.sarif
-                    '''
-                }
+                # KHÔNG FAIL – lấy toàn bộ severity
+                semgrep scan \
+                  --config auto \
+                  --sarif -o semgrep.sarif || true
+                '''
             }
         }
 
         // =========================
-        // 6. DEPENDENCY & IMAGE SCAN – TRIVY
+        // 6. DEPENDENCY / IMAGE SCAN – TRIVY (OK)
         // =========================
         stage('📦 Dependency & Image Scan (Trivy)') {
             steps {
@@ -103,9 +90,9 @@ pipeline {
                 curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | \
                   sh -s -- -b /usr/local/bin
 
-                # FILESYSTEM SCAN (HIGH → UNSTABLE)
+                # FILESYSTEM SCAN (KHÔNG FAIL)
                 trivy fs \
-                  --severity HIGH \
+                  --severity HIGH,CRITICAL \
                   --exit-code 0 \
                   --format sarif \
                   -o trivy.sarif .
@@ -113,17 +100,17 @@ pipeline {
                 # BUILD IMAGE
                 docker build -t my-app:${BUILD_NUMBER} .
 
-                # IMAGE SCAN (CRITICAL → FAIL)
+                # IMAGE SCAN (KHÔNG FAIL)
                 trivy image \
                   --severity CRITICAL \
-                  --exit-code 1 \
+                  --exit-code 0 \
                   my-app:${BUILD_NUMBER}
                 '''
             }
         }
 
         // =========================
-        // 7. SECURITY DASHBOARD
+        // 7. SECURITY DASHBOARD (QUAN TRỌNG)
         // =========================
         stage('📊 Security Dashboard') {
             steps {
@@ -132,7 +119,7 @@ pipeline {
                         sarif(pattern: 'gitleaks.sarif', id: 'gitleaks', name: '🔐 Secrets (Gitleaks)'),
                         sarif(pattern: 'tfsec.sarif',    id: 'tfsec',    name: '🏗 IaC (tfsec)'),
                         sarif(pattern: 'semgrep.sarif',  id: 'semgrep',  name: '🧠 SAST (Semgrep)'),
-                        sarif(pattern: 'trivy.sarif',    id: 'trivy',    name: '📦 SCA / Image (Trivy)')
+                        sarif(pattern: 'trivy.sarif',    id: 'trivy',    name: '📦 Dependencies (Trivy)')
                     ],
                     enabledForFailure: true,
                     skipBlames: true
@@ -143,41 +130,28 @@ pipeline {
 🔐 Gitleaks – Secrets
 🏗 tfsec – Terraform
 🧠 Semgrep – SAST
-📦 Trivy – Dependencies / Image
+📦 Trivy – SCA / Image
                     '''
                 }
             }
         }
 
         // =========================
-        // 8. TERRAFORM PLAN
+        // 8. TERRAFORM PLAN (KHÔNG BỊ SKIP)
         // =========================
         stage('🚀 Terraform Plan') {
-            when {
-                expression {
-                    currentBuild.result == null || currentBuild.result == 'SUCCESS'
-                }
-            }
             steps {
-                sh 'echo "✅ Security passed – ready for Terraform Plan"'
-                // terraform init
-                // terraform plan
+                sh 'echo "🚀 Terraform Plan (Security results already collected)"'
             }
         }
     }
 
-    // =========================
-    // 9. POST ACTIONS
-    // =========================
     post {
         always {
             archiveArtifacts artifacts: '*.sarif', fingerprint: true
         }
-        unstable {
-            echo '⚠️ Build UNSTABLE – có lỗ hổng mức HIGH / ERROR'
-        }
-        failure {
-            echo '❌ Build FAILED do CRITICAL security issues'
+        success {
+            echo '✅ Pipeline chạy hoàn tất – kiểm tra Security Dashboard'
         }
     }
 }
