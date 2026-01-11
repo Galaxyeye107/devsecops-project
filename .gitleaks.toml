@@ -1,0 +1,6 @@
+[allowlist]
+description = "Allowlist documentation files"
+paths = [
+  '''README.md''',
+  '''docs/.*'''
+]

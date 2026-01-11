@@ -43,6 +43,7 @@ pipeline {
                 # KHÔNG FAIL – chỉ tạo report
                 ./gitleaks detect \
                   --source . \
+                  --config .gitleaks.toml \
                   --no-git \
                   --report-format sarif \
                   --report-path gitleaks.sarif || true
