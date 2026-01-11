@@ -171,22 +171,3 @@ resource "aws_iam_role_policy_attachment" "app_role_secrets" {
   role       = aws_iam_role.app_role.name
   policy_arn = aws_iam_policy.secrets_policy.arn
 }
-# =========================
-# ❌ INTENTIONALLY INSECURE EC2 (FOR TFSEC TEST)
-# Mục đích: tạo 1 lỗi HIGH để test Security Dashboard
-# =========================
-resource "aws_instance" "tfsec_high_demo" {
-  ami           = "ami-0df7a207adb9748c7" # Amazon Linux 2 (Singapore)
-  instance_type = "t3.micro"
-  subnet_id     = aws_subnet.private.id
-  iam_instance_profile = aws_iam_instance_profile.app_profile.name
-
-  # ❌ LỖI HIGH: EBS root volume KHÔNG mã hóa
-  root_block_device {
-    encrypted = false
-  }
-
-  tags = {
-    Name = "tfsec-high-demo"
-  }
-}

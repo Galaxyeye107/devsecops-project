@@ -2,23 +2,24 @@ pipeline {
     agent any
 
     // =========================
-    // TÙY CHỌN CHUNG
+    // OPTIONS
     // =========================
     options {
         timestamps()
     }
 
     // =========================
-    // BIẾN MÔI TRƯỜNG
+    // ENV
     // =========================
     environment {
-        TRIVY_SEVERITY = 'HIGH,CRITICAL'
+        TRIVY_SEVERITY_HIGH = 'HIGH'
+        TRIVY_SEVERITY_CRITICAL = 'CRITICAL'
     }
 
     stages {
 
         // =========================
-        // 1. CHECKOUT SOURCE
+        // 1. CHECKOUT
         // =========================
         stage('📥 Checkout Source') {
             steps {
@@ -27,7 +28,7 @@ pipeline {
         }
 
         // =========================
-        // 2. CLEAN WORKSPACE
+        // 2. CLEAN
         // =========================
         stage('🧹 Clean Workspace') {
             steps {
@@ -38,83 +39,100 @@ pipeline {
         }
 
         // =========================
-        // 3. SECRET SCANNING – GITLEAKS
+        // 3. GITLEAKS – SECRET SCAN
         // =========================
         stage('🔐 Secret Scanning (Gitleaks)') {
             steps {
-                sh '''
-                curl -L https://github.com/gitleaks/gitleaks/releases/download/v8.18.1/gitleaks_8.18.1_linux_x64.tar.gz -o gitleaks.tar.gz
-                tar -xzf gitleaks.tar.gz
+                catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
+                    sh '''
+                    curl -L https://github.com/gitleaks/gitleaks/releases/download/v8.18.1/gitleaks_8.18.1_linux_x64.tar.gz -o gitleaks.tar.gz
+                    tar -xzf gitleaks.tar.gz
 
-                # CRITICAL secrets → FAIL
-                ./gitleaks detect \
-                  --source . \
-                  --report-format sarif \
-                  --report-path gitleaks.sarif \
-                  --exit-code 1
-                '''
+                    # ANY secret → CRITICAL → FAIL
+                    ./gitleaks detect \
+                      --source . \
+                      --report-format sarif \
+                      --report-path gitleaks.sarif \
+                      --exit-code 1
+                    '''
+                }
             }
         }
 
         // =========================
-        // 4. IAC SECURITY – TFSEC
+        // 4. TFSEC – IaC
         // =========================
         stage('🏗 IaC Security (tfsec)') {
             steps {
-                sh '''
-                curl -L https://github.com/aquasecurity/tfsec/releases/download/v1.28.1/tfsec-linux-amd64 -o tfsec
-                chmod +x tfsec
+                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                    sh '''
+                    curl -L https://github.com/aquasecurity/tfsec/releases/download/v1.28.1/tfsec-linux-amd64 -o tfsec
+                    chmod +x tfsec
 
-                # Quét TẤT CẢ severity (LOW → CRITICAL)
-                ./tfsec . --format sarif > tfsec.sarif || true
-                '''
+                    # LOW → HIGH → UNSTABLE (tfsec không có exit-code granular)
+                    ./tfsec . \
+                      --format sarif \
+                      --out tfsec.sarif
+                    '''
+                }
             }
         }
 
         // =========================
-        // 5. SAST – SEMGREP
+        // 5. SEMGREP – SAST
         // =========================
         stage('🧠 SAST (Semgrep)') {
             steps {
-                sh '''
-                pip3 install semgrep --break-system-packages
+                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                    sh '''
+                    pip3 install semgrep --break-system-packages
 
-                # ERROR level rules → FAIL
-                semgrep scan \
-                  --config auto \
-                  --severity ERROR \
-                  --sarif -o semgrep.sarif
-                '''
+                    # Any finding (LOW+) → UNSTABLE
+                    semgrep scan \
+                      --config auto \
+                      --sarif \
+                      --output semgrep.sarif \
+                      --error
+                    '''
+                }
             }
         }
 
         // =========================
-        // 6. DEPENDENCY / IMAGE SCAN – TRIVY
+        // 6. TRIVY – SCA & IMAGE
         // =========================
         stage('📦 Dependency & Image Scan (Trivy)') {
             steps {
+
+                // ---- HIGH → UNSTABLE ----
+                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                    sh '''
+                    apt-get update && apt-get install -y docker.io || true
+
+                    curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | \
+                      sh -s -- -b /usr/local/bin
+
+                    trivy fs . \
+                      --severity ${TRIVY_SEVERITY_HIGH} \
+                      --exit-code 1 \
+                      --format sarif \
+                      --output trivy.sarif
+                    '''
+                }
+
+                // ---- BUILD IMAGE ----
                 sh '''
-                apt-get update && apt-get install -y docker.io || true
-
-                curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | \
-                  sh -s -- -b /usr/local/bin
-
-                # === FILESYSTEM SCAN (HIGH → UNSTABLE) ===
-                trivy fs \
-                  --severity HIGH \
-                  --exit-code 0 \
-                  --format sarif \
-                  -o trivy.sarif .
-
-                # === BUILD IMAGE ===
                 docker build -t my-app:${BUILD_NUMBER} .
-
-                # === IMAGE SCAN (CRITICAL → FAIL) ===
-                trivy image \
-                  --severity CRITICAL \
-                  --exit-code 1 \
-                  my-app:${BUILD_NUMBER}
                 '''
+
+                // ---- CRITICAL → FAIL ----
+                catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
+                    sh '''
+                    trivy image my-app:${BUILD_NUMBER} \
+                      --severity ${TRIVY_SEVERITY_CRITICAL} \
+                      --exit-code 1
+                    '''
+                }
             }
         }
 
@@ -125,21 +143,25 @@ pipeline {
             steps {
                 recordIssues(
                     tools: [
-                        sarif(pattern: 'gitleaks.sarif', id: 'gitleaks', name: '🔐 Secrets (Gitleaks)'),
-                        sarif(pattern: 'tfsec.sarif',    id: 'tfsec',    name: '🏗 IaC (tfsec)'),
-                        sarif(pattern: 'semgrep.sarif',  id: 'semgrep',  name: '🧠 SAST (Semgrep)'),
-                        sarif(pattern: 'trivy.sarif',    id: 'trivy',    name: '📦 Dependencies (Trivy)')
+                        sarif(pattern: 'gitleaks.sarif', id: 'gitleaks', name: '🔐 Secrets'),
+                        sarif(pattern: 'tfsec.sarif',    id: 'tfsec',    name: '🏗 IaC'),
+                        sarif(pattern: 'semgrep.sarif',  id: 'semgrep',  name: '🧠 SAST'),
+                        sarif(pattern: 'trivy.sarif',    id: 'trivy',    name: '📦 SCA')
                     ],
                     enabledForFailure: true,
-                    skipBlames: true
+                    skipBlames: true,
+                    qualityGates: [
+                        [threshold: 0, type: 'TOTAL_CRITICAL'],
+                        [threshold: 0, type: 'TOTAL_HIGH', unstable: true]
+                    ]
                 )
 
                 script {
                     currentBuild.description = '''
-🔐 Gitleaks – Secrets
-🏗 tfsec – Terraform
-🧠 Semgrep – SAST
-📦 Trivy – SCA / Image
+🔐 Gitleaks
+🏗 tfsec
+🧠 Semgrep
+📦 Trivy
                     '''
                 }
             }
@@ -155,7 +177,7 @@ pipeline {
                 }
             }
             steps {
-                sh 'echo "✅ Security pass – ready for Terraform Plan"'
+                sh 'echo "✅ Security OK – Terraform can run"'
                 // terraform init
                 // terraform plan
             }
@@ -163,17 +185,17 @@ pipeline {
     }
 
     // =========================
-    // 9. POST PIPELINE
+    // POST
     // =========================
     post {
         always {
             archiveArtifacts artifacts: '*.sarif', fingerprint: true
         }
         unstable {
-            echo '⚠️ Có lỗ hổng mức HIGH – cần xem xét'
+            echo '⚠️ Có lỗ hổng mức HIGH'
         }
         failure {
-            echo '❌ Build FAILED do phát hiện CRITICAL security issues'
+            echo '❌ Build FAILED do CRITICAL security issues'
         }
     }
 }
