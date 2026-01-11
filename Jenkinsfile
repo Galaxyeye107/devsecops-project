@@ -137,20 +137,21 @@ pipeline {
                     enabledForFailure: true,
                     skipBlames: true,
                     qualityGates: [
-                        // Có lỗ hổng CRITICAL mới → FAIL
-                        [threshold: 0, type: 'NEW_CRITICAL', failure: true],
-                        // Có lỗ hổng HIGH mới → UNSTABLE
-                        [threshold: 0, type: 'NEW_HIGH', unstable: true]
+                        // Có bất kỳ CRITICAL nào → FAIL
+                        [threshold: 0, type: 'TOTAL_CRITICAL'],
+
+                        // Có HIGH → UNSTABLE
+                        [threshold: 0, type: 'TOTAL_HIGH', unstable: true]
                     ]
                 )
 
                 // Ghi chú ngắn gọn ngay tại build
                 script {
                     currentBuild.description = '''
-🔐 Gitleaks
-🧠 Semgrep
-🏗 tfsec
-📦 Trivy
+                    🔐 Gitleaks
+                    🧠 Semgrep
+                    🏗 tfsec
+                    📦 Trivy
                     '''
                 }
             }
