@@ -40,11 +40,16 @@ pipeline {
         stage('Container Security Scan (Trivy)') {
             steps {
                 script {
-                    // 1. Build thử image
-                    sh 'docker build -t my-app:${BUILD_NUMBER} .'
-                    
-                    // 2. Tải và chạy Trivy để quét Image vừa build
+                    // 1. Cài đặt Docker CLI nhanh chóng nếu container bị mất lệnh
+                    sh 'apt-get update && apt-get install -y docker.io || echo "Docker already installed"'
+
+                    // 2. Quét lỗ hổng trong các thư viện (SCA) TRƯỚC khi build
+                    // Cách này giúp bạn biết Flask có an toàn không mà không cần lệnh docker
                     sh 'curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin'
+                    sh 'trivy fs --severity HIGH,CRITICAL .' 
+
+                    // 3. Nếu Docker ổn định, hãy build và quét Image
+                    sh 'docker build -t my-app:${BUILD_NUMBER} .'
                     sh 'trivy image --severity HIGH,CRITICAL my-app:${BUILD_NUMBER}'
                 }
             }
