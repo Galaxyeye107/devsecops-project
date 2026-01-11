@@ -68,15 +68,20 @@ pipeline {
         stage('Security Reports Dashboard') {
             steps {
                 script {
-                    // 1. Quét file JSON và tạo đối tượng Issues cho từng loại
-                    // Chúng ta dùng ID định danh của parser để Jenkins không bị nhầm lẫn
-                    def gitleaksReport = scanForIssues tool: gitleaks(pattern: 'gitleaks.json'), id: 'gitleaks-report', name: 'Gitleaks Secrets'
-                    def tfsecReport    = scanForIssues tool: terraform(pattern: 'tfsec.json'), id: 'tfsec-report', name: 'Terraform Security'
-                    def semgrepReport  = scanForIssues tool: checkStyle(pattern: 'semgrep.json'), id: 'semgrep-report', name: 'Semgrep SAST'
-                    def trivyReport    = scanForIssues tool: trivy(pattern: 'trivy.json'), id: 'trivy-report', name: 'Container Security'
-
-                    // 2. Hiển thị tất cả lên Dashboard
-                    publishIssues issues: [gitleaksReport, tfsecReport, semgrepReport, trivyReport]
+                    // Dùng lệnh recordIssues với công cụ 'issues' tổng quát
+                    // Đây là cách an toàn nhất khi Jenkins không nhận diện được phím tắt gitleaks()
+                    
+                    // 1. Quét Secret Scan (Gitleaks)
+                    recordIssues tool: issues(pattern: 'gitleaks.json'), id: 'gitleaks-scan', name: 'Gitleaks Secrets'
+                    
+                    // 2. Quét Infrastructure Scan (tfsec)
+                    recordIssues tool: issues(pattern: 'tfsec.json'), id: 'tfsec-scan', name: 'Terraform Security'
+                    
+                    // 3. Quét SAST (Semgrep)
+                    recordIssues tool: issues(pattern: 'semgrep.json'), id: 'semgrep-scan', name: 'Semgrep SAST'
+                    
+                    // 4. Quét Container Scan (Trivy)
+                    recordIssues tool: issues(pattern: 'trivy.json'), id: 'trivy-scan', name: 'Container Security'
                 }
             }
         }
